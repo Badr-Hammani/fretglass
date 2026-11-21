@@ -2077,7 +2077,7 @@ function placeLyrics(content, lyrics){
     out.push('{c: ' + (name || 'Verse') + '}');
     if(!lines.length){ out.push((sec ? sec.chords : []).map(c => '[' + c + ']').join(' '), ''); continue; }
     const ch = sec ? sec.chords : [];
-    const per0 = ch.length ? clamp(Math.round(ch.length / lines.length), 1, 4) : 0;
+    const per0 = ch.length ? clamp(Math.round(ch.length / lines.length), 1, 2) : 0;
     let ci = 0;
     lines.forEach(l => {
       const p = {text:l, chords:[]};
@@ -2121,8 +2121,10 @@ function convertAlternating(L){
       if(instrumental){ flush(); pend.push(...ch); continue; }
       if(plain && pend.length === 0){
         const piece = nx.replace(/^\s+/, '');
-        const endsPunct = /[.,!?;:)]\s*$/.test(plain), startsCap = /^[A-Z]/.test(piece) && !/^I(\b|')/.test(piece), longLine = plain.length > 60;
-        if(endsPunct || longLine || (startsCap && plain.length > 8)) flush();
+        const endsPunct = /[.,!?;:)]\s*$/.test(plain), startsCap = /^[A-Z]/.test(piece) && !/^I(\b|')/.test(piece), longLine = plain.length > 45;
+        const twoChords = (line.match(/\[/g) || []).length >= 2 && plain.length > 14;
+        const midWord = /[A-Za-z']$/.test(plain) && /^[a-z]/.test(nx);
+        if(!midWord && (endsPunct || longLine || twoChords || (startsCap && plain.length > 8))) flush();
       }
       pend.push(...ch); continue;
     }
@@ -2133,20 +2135,27 @@ function convertAlternating(L){
   flush();
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
+/* Lyric lines only (chords and directives removed) from a converted sheet, keeping part names as headers. */
+function lyricsOnly(sheet){
+  return String(sheet).split('\n').map(l => { const d = /^\s*\{\s*c(?:omment)?\s*:\s*(.*?)\s*\}\s*$/i.exec(l); if(d) return d[1]; if(/^\s*\{/.test(l)) return ''; return l.replace(/\[[^\]]*\]/g, '').replace(/\s{2,}/g, ' ').trim(); })
+    .filter((l, i, a) => l || (i && a[i - 1])).join('\n');
+}
 function hasLyrics(content){ return String(content || '').split('\n').some(l => !/^\s*\{/.test(l) && parseLine(l).text.replace(/[|\s]/g, '').length > 3); }
 function openLyricsPop(){
   const s = cur;
   $('#pop').innerHTML = `<div class="grab"></div><h3 style="font-size:18px;margin-bottom:4px">Paste lyrics</h3>
     <p class="help" style="margin:0 0 10px">Paste the words from your lyrics site or booklet. Leave an empty line between parts. A line like <code>Chorus</code> or <code>[Verse 2]</code> picks that part's chords; otherwise repeated parts are matched as the chorus. Chords go on automatically, then you can move any of them.</p>
     <textarea class="input" id="lyIn" style="min-height:220px;font-family:var(--f-body);font-size:15px" placeholder="Verse 1&#10;first line of the verse&#10;second line…&#10;&#10;Chorus&#10;first line of the chorus…"></textarea>
+    <label class="help" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="lyOwn"> If my paste has chords, keep those instead of this song's chords</label>
     <div class="row" style="margin-top:12px"><button class="btn primary grow" id="lyGo">Place chords</button><button class="btn ghost" data-pclose>Cancel</button></div>
     ${s.chordsOnly ? '<div class="row" style="margin-top:8px"><button class="btn danger sm" id="lyUndo">Go back to chords only</button></div>' : ''}`;
   $('#scrim').classList.add('on'); $('#pop').classList.add('on');
   setTimeout(() => $('#lyIn').focus(), 350);
   $('#lyGo').onclick = () => {
     const txt = $('#lyIn').value; if(!txt.trim()){ toast('Paste the lyrics first'); return; }
-    const own = pastedSheet(txt);
-    const base = s.chordsOnly || s.content; const res = own || placeLyrics(base, txt);
+    const base = s.chordsOnly || s.content, hasOwnChords = sectionsOf(base).some(x => x.chords.length);
+    const sheet = pastedSheet(txt), own = sheet && ($('#lyOwn').checked || !hasOwnChords) ? sheet : null;
+    const res = own || placeLyrics(base, sheet ? lyricsOnly(sheet) : txt);
     if(!res){ toast("Couldn't read those lyrics"); return; }
     if(own){ if(!s.chordsOnly) s.chordsOnly = s.content; s.content = own; saveSong(s); closePop(); renderSong(); toast('Used the chords from your paste'); return; }
     if(!s.chordsOnly) s.chordsOnly = s.content;
